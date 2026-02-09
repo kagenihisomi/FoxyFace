@@ -19,18 +19,25 @@ class CameraEnumerator:
     """Utility class to enumerate available cameras and their names."""
 
     _pygrabber_disabled = False
+    _cached_device_names: list[str] | None = None
 
     @staticmethod
-    def get_available_cameras(max_cameras: int = 10) -> list[CameraInfo]:
+    def get_available_cameras(
+        max_cameras: int = 10, force_refresh_names: bool = False
+    ) -> list[CameraInfo]:
         """
         Enumerate available cameras on the system.
 
         Args:
             max_cameras: Maximum number of camera indices to check (default: 10)
+            force_refresh_names: Whether to force refresh of device names (default: False)
 
         Returns:
             List of CameraInfo objects containing camera index and name
         """
+        if force_refresh_names:
+            CameraEnumerator._cached_device_names = None
+
         available_cameras = []
         is_windows = platform.system() == "Windows"
         backend = cv2.CAP_DSHOW if is_windows else cv2.CAP_ANY
@@ -93,10 +100,16 @@ class CameraEnumerator:
         if CameraEnumerator._pygrabber_disabled:
             return []
 
+        if CameraEnumerator._cached_device_names is not None:
+            return CameraEnumerator._cached_device_names
+
         try:
             from pygrabber.dshow_graph import FilterGraph
 
-            return FilterGraph().get_input_devices() or []
+            CameraEnumerator._cached_device_names = (
+                FilterGraph().get_input_devices() or []
+            )
+            return CameraEnumerator._cached_device_names
         except ImportError:
             CameraEnumerator._pygrabber_disabled = True
             return []

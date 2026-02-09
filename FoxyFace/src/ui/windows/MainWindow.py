@@ -14,6 +14,11 @@ from src.pipline.CameraPipeline import CameraPipeline
 from src.pipline.MediaPipePipeline import MediaPipePipeline
 from src.pipline.ProcessingPipeline import ProcessingPipeline
 from src.pipline.UdpPipeline import UdpPipeline
+from src.stream.camera.CameraProcessingOption import CameraProcessingOption
+from src.stream.camera.CameraStream import CameraStream
+from src.stream.camera.CameraEnumerator import CameraEnumerator
+from src.stream.core.StreamWriteOnly import StreamWriteOnly
+from src.stream.core.components.WriteCpsCounter import WriteCpsCounter
 from src.pipline.calibration.AutoCalibrationEndpoint import AutoCalibrationEndpoint
 from src.ui import UiImageUtil
 from src.ui.FoxyWindow import FoxyWindow
@@ -38,6 +43,7 @@ class MainWindow(FoxyWindow):
     udp_pps_signal = Signal(str)
     udp_status_signal = Signal(str)
     has_update_signal = Signal(object)
+    camera_list_ready_signal = Signal()
 
     def __init__(
         self,
@@ -66,6 +72,8 @@ class MainWindow(FoxyWindow):
         self.__ui = Ui_MainWindow()
         self.__ui.setupUi(self)
 
+        self.__ui.open_camera_settings_btn.setEnabled(False)
+
         self.__register_events()
         self.__register_signals()
 
@@ -87,7 +95,20 @@ class MainWindow(FoxyWindow):
         self.__calibration_window: CalibrationWindow | None = None
         self.__has_update_window: HasUpdateWindow | None = None
 
+        threading.Thread(target=self.__warmup_camera_list, daemon=True).start()
+
         self.show()
+
+    def __warmup_camera_list(self):
+        try:
+            CameraEnumerator.get_available_cameras()
+        except Exception:
+            pass
+        finally:
+            self.camera_list_ready_signal.emit()
+
+    def __on_camera_list_ready(self):
+        self.__ui.open_camera_settings_btn.setEnabled(True)
 
     def closeEvent(self, event):
         self.is_closed.set()
@@ -141,6 +162,7 @@ class MainWindow(FoxyWindow):
         self.udp_pps_signal.connect(self.__ui.vrcft_pps_lbl.setText)
         self.udp_status_signal.connect(self.__ui.vrcft_status_lbl.setText)
         self.has_update_signal.connect(self.__has_update)
+        self.camera_list_ready_signal.connect(self.__on_camera_list_ready)
 
     def __unregister_signals(self):
         self.camera_fps_signal.disconnect(self.__ui.camera_fps_lbl.setText)
@@ -197,6 +219,9 @@ class MainWindow(FoxyWindow):
                     self.__camera_settings_window = CameraSettingsWindow(
                         self.__config_manager
                     )
+                    # Reset the closed event if it was set
+                    if self.__camera_settings_window.is_closed.is_set():
+                        self.__camera_settings_window.is_closed.clear()
                 except Exception:
                     _logger.error(
                         "Failed to initialize camera settings window", exc_info=True
